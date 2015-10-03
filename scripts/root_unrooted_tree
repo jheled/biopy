@@ -11,7 +11,7 @@ import argparse, sys, os.path
 parser = argparse.ArgumentParser(description = """Root unrooted trees.""")
 
 parser.add_argument("-m", "--midpoint", action="store_true", default = False,
-                    help="""Use midpoint rooting""")
+                    help="""Use midpoint rooting. By default use minimum tip variance.""")
 
 parser.add_argument("-o", "--nexus", metavar="FILE",
                     help="Name of trees file.", default = None)

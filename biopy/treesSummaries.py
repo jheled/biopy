@@ -296,22 +296,67 @@ def _addAnnotation(node, heights, N) :
   data.attributes['posterior'] = sup
   if heights and len(heights)>2:
     data.attributes['height_95%_HPD'] = ("%f,%f" % hpd(heights, 0.95))
-  
-def annotateTree(tree, trees) :
+
+def getAtrs(n, atrs) :
+#  print n,atrs
+  if hasattr(n.data, "attributes") :
+    d = n.data.attributes
+    return [d.get(a) for a in atrs]
+  else :
+    return [None]*len(atrs)
+
+def _getVals(v) :
+  try :
+    return float(v)
+  except :
+    pass
+  if ',' in v:
+    try :
+      return [float(x) for x in v.strip().split(",")]
+    except :
+      pass
+  return None
+
+def annotateTree(tree, trees, atrs) :
   """ Two important annotations: clade posterior frequency and 95% HPD height"""
-  func = lambda t,(n,h) : h
+  if atrs :
+    func = lambda t,(n,h) : (h, getAtrs(t.node(n),atrs))
+  else :
+    func = lambda t,(n,h) : h
   posteriorParts,rhs = allPartitions(tree, trees, func = func,
                                      withHeights = True, withRoot = True)
   treeParts = allPartitions(tree, [tree])
-  
+
   for k in treeParts :
     # Node id
     nn = treeParts[k][0][1]
     nd = tree.node(nn)
+
+    d = posteriorParts.get(k)
+
+    if atrs :
+      data = nd.data
+      if not hasattr(data, "attributes") :
+        data.attributes = dict()
+
+      h = [x[0] for x in d]
+      for j,a in enumerate(atrs):
+        vals = [_getVals(x[1][j]) for x in d if x[1][j] is not None]
+        #if not nd.succ :
+        #  print nd.data.taxon, vals,d
+        vals = filter(lambda x : x is not None, vals)
+        if len(vals) :
+          if isinstance(vals[0], list) :
+            data.attributes[a] = '{' + ','.join(["%g" % mean(x) for x in zip(*vals)]) + '}'
+          else :
+            data.attributes[a] = mean(vals)
+    else :
+      h = d
+      
     if not nd.succ :
       continue
 
-    _addAnnotation(nd, posteriorParts.get(k), len(trees))
+    _addAnnotation(nd, h, len(trees))
 
   _addAnnotation(tree.node(tree.root), rhs, len(trees))
 

@@ -219,7 +219,7 @@ class Tree(Nodes.Chain):
                 return id
         return None
    
-    def prune(self,taxon):
+    def _prune(self,taxon):
         """Prunes a terminal taxon from the tree.
         
         id_of_previous_node = prune(self,taxon)
@@ -238,10 +238,25 @@ class Tree(Nodes.Chain):
             self.kill(id)
             if not prev==self.root and len(self.node(prev).succ)==1:
                 succ=self.node(prev).succ[0]
-                new_bl=self.node(prev).data.branchlength+self.node(succ).data.branchlength
+                bls = [self.node(prev).data.branchlength,self.node(succ).data.branchlength]
+                if any(bls) :
+                    new_bl = (bls[0] or 0) + (bls[1] or 0)
+                else :
+                    new_bl = None
                 self.collapse(prev)
                 self.node(succ).data.branchlength=new_bl
             return prev
+
+    def prune(self,taxon):
+       r = self.root
+       tid = self._prune(taxon)
+       if tid == r :
+         for n in self.all_ids() :
+           if self.node(n).prev == r:
+             self.root = n
+             self.node(n).prev = None
+             break
+       return tid  # ??? when root
         
     def get_taxa(self,node_id=None,asIDs = False):
         """Return a list of all otus downwards from a node (self, node_id).

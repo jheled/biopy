@@ -43,13 +43,48 @@ def c_t(n, k, i) :
 
   _c_vals[n,k,i] = v
   return v
+
+_ci_vals = dict() 
+def ci(n,k) :
+  # n-k rates
+  # backwards rates
+  if (n,k) in _ci_vals :
+    return _ci_vals[(n,k)]
     
+  rs = [(i*(i-1))/2. for i in range(k,n+1)]
+  
+  # work backwards
+  # rate of no coal (last)
+  cis = [1]
+  for i in range(1, n-k+1) :
+    r = rs[i]
+    for j in range(len(cis)):
+      cis[j] *= r/(r-rs[j])
+    cis.append(-sum(cis))
+  _ci_vals[(n,k)] = cis
+  return cis
+  
+def ci_t(n, k, i) :
+  assert k <= i <= n
+  return ci(n,k)[i-k]
+      
 def nToKlinages(n, k, d, t) :
   """ Probability of k remaining lineages from n after time t and population
   size function d"""
   
   return sum([c_t(n,k,i) * exp(-c2(i) * d.integrate(t)) for i in range(k, n+1)])
 
+def i_nToKlinages(n, k, p, t) :
+  """ Probability of k remaining lineages from n after time t and population
+  integrated over the prior p (hardwired to inv gamma at the moment, should be
+  more general)"""
+  
+  a,b = p.alpha,p.beta
+  ix = lambda x : (b/(b + x))**a
+  civ = ci(n,k)
+  assert len(civ) == n-k+1, (n,k,len(civ),civ, ci(n,k)) 
+  return sum([civ[i-k] * ix(c2(i)*t) for i in range(k, n+1)])
+  
 def stripLeaves(p) :
   if len(p) == 1 :
     return p[0]
@@ -84,7 +119,14 @@ def _compatibleGeneTreesInSpeciesTree(tree, nodeId, compat) :
     forests = [(p0*p1,f0+f1) for p0,f0 in cth0 for p1,f1 in cth1]
 
   resultForests = []
-  demo = node.data.demographic
+  demo = getattr(node.data, "demographic", None)
+  if demo is not None:
+    demo1 = demo
+    n2k = lambda n, n1, b : nToKlinages(n, n1, demo1, b)
+    demo = None
+  else :
+    n2k = lambda n, n1, b : i_nToKlinages(n, n1, tree.prior, b)
+  
   b = node.data.branchlength
   isRoot = nodeId == tree.root
 
@@ -106,7 +148,7 @@ def _compatibleGeneTreesInSpeciesTree(tree, nodeId, compat) :
       
       th = theoDict.get( (n, n1 ) )
       if th is None :
-        th = nToKlinages(n, n1, demo, b) if not isRoot else 1
+        th = n2k(n, n1, b) if not isRoot else 1
 
         theoDict[ (n, n1) ] = th
         

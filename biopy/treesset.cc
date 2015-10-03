@@ -323,7 +323,7 @@ Attributes&
 
 
 static int
-readSubTree(const char* txt, vector<returnType>& nodes)
+readSubTree(const char* txt, vector<returnType>& nodes, bool const loadAttributes = true)
 {
   int eat = skipSpaces(txt);
   txt += eat;
@@ -343,7 +343,7 @@ readSubTree(const char* txt, vector<returnType>& nodes)
 #endif
     
     while( true ) {
-      int n1 = readSubTree(txt+1, nodes);
+      int n1 = readSubTree(txt+1, nodes, loadAttributes);
       if( n1 <= 0 ) {
 	return std::min(n1 - eat,-1);
       }
@@ -418,7 +418,7 @@ readSubTree(const char* txt, vector<returnType>& nodes)
       break;
     }
     if( *txt == '[' ) {
-      if( txt[1] == '&' ) {
+      if( txt[1] == '&' && loadAttributes ) {
 #ifdef PYINTERFACE
 	vector<PyObject*> vs;
 #else
@@ -619,20 +619,53 @@ FixedIntPacker::FixedIntPacker(uint _nBitsPerValue,
   } else {
     
     std::fill(bits, bits+sbits,0);
-  
+    // cur points to the next block of 8 bits, which contains some written bits at the
+    // fron and some (>0) available bits.
     unsigned char* cur = bits;
+    // Position of next free bit in cur (0 <= loc < 8 (number of bits in one char)) 
     uint loc = 0;
   
     for(auto v = from; v < to; ++v)  {
-      loc += nBitsPerValue;
-      if( loc <= usize ) {
-	*cur |= (*v << (usize - loc));
+      uint const locend = loc + nBitsPerValue;
+      if( locend <= usize ) {
+	*cur |= (*v << (usize - locend));
+	if( locend == usize ) {
+	  loc = 0;
+	  ++cur;                       assert( cur - bits < sbits );
+	} else {
+	  loc = locend;
+	}
       } else {
-	loc -= usize; // now loc is number of bits in next block
-	*cur |= (*v >> loc);
-	++cur;                          assert( cur - bits < sbits );
-	uint const s = usize - loc;
-	*cur |= (*v << s) & ~((1 << s)-1);
+	uint i = *v;
+	if( locend < 2*usize ) {
+	  // fits in current and next, with bits to spare
+	  loc = locend - usize; // now loc is number of bits remaining to write in the next 'bin'
+	  *cur |= (i >> loc);
+	  ++cur;                          assert( cur - bits < sbits );
+	  uint const s = usize - loc;
+	  *cur |= (i << s) & ~((1 << s)-1);
+	} else {
+	  uint const available = usize - loc;
+	  uint remaining = nBitsPerValue - available;	  
+	  // output top bits into available space in current
+	  *cur |= (i >> remaining);
+	  ++cur;
+	  // mask top bits
+	  i &= (1 << remaining) - 1;
+	  while( remaining >= usize ) {
+	    remaining -= usize;
+	    *cur = i >> remaining;
+	    ++cur;
+	    i &= (1 << remaining) - 1;
+	  }
+	  if( remaining > 0 ) {
+	    uint const s = usize - remaining;
+	    *cur |= (i << s) & ~((1 << s)-1);
+	    loc = remaining;
+	  } else {
+	    loc = 0;
+	  }
+	}
       }
     }
   }
@@ -651,22 +684,51 @@ FixedIntPacker::unpacked(void) const
     }
     return temp;
   }
-  
-  int loc = usize;
-  unsigned char mask = lowerNbits<unsigned char>(nBitsPerValue);
-  
-  for(uint k = 0; k < len; ++k) {
-    loc -= nBitsPerValue;
-    if( loc >= 0 ) {
-      temp[k] = ((*cur) >> loc) & mask;
-    } else {
-      uint const upper = *cur & lowerNbits<unsigned char>(loc + nBitsPerValue);
-      uint const left = -loc;
 
-      ++cur;
-      loc = usize - left;
-      uint const lower = (*cur & upperNbits<unsigned char>(left)) >> loc;
-      temp[k] = (upper << left) | lower;
+  if( nBitsPerValue < usize ) {
+    // can span at most two consecutive 'bins'
+    int loc = usize;
+    unsigned char mask = lowerNbits<unsigned char>(nBitsPerValue);
+  
+    for(uint k = 0; k < len; ++k) {
+      loc -= nBitsPerValue;
+      if( loc >= 0 ) {
+	temp[k] = ((*cur) >> loc) & mask;
+      } else {
+	uint const upper = *cur & lowerNbits<unsigned char>(loc + nBitsPerValue);
+	uint const left = -loc;
+
+	++cur;
+	loc = usize - left;
+	uint const lower = (*cur & upperNbits<unsigned char>(left)) >> loc;
+	temp[k] = (upper << left) | lower;
+      }
+    }
+  } else {
+    uint available = usize;
+    unsigned char b = *cur;
+    for(uint k = 0; k < len; ++k) {
+      uint remaining = nBitsPerValue - available;
+      unsigned int v = b;
+      b = *(++cur);
+      available = usize;
+      
+      while( remaining > 0 ) {
+	if( remaining <= available ) {
+	  // take available
+	  uint const left = available - remaining;
+	  v = (v << remaining) | ((b & upperNbits<unsigned char>(remaining)) >> left);
+	  remaining = 0;
+	  b &= lowerNbits<unsigned char>(left);
+	  available = left;
+	} else {
+	  v = v << usize | b;
+	  b = *(++cur);
+	  available = usize;
+	  remaining -= usize;
+	}
+      }
+      temp[k] = v;
     }
   }
   return temp;
@@ -894,6 +956,11 @@ Tree::Tree(TreesSet const& _ts, uint _nt) :
 {}
 
 Tree::~Tree() {
+  if( internals ) {
+    for(auto i = internals->begin(); i != internals->end(); ++i) {
+      delete i->branch;
+    }
+  }
   delete internals;
   delete [] sonsBlockSave;
 }
@@ -952,7 +1019,7 @@ TreeObject::del(void)
     for( auto n = treeNodes->begin(); n != treeNodes->end(); ++n ) {
       Py_XDECREF(*n);
     }
-    Py_XDECREF(treeNodes);
+    delete treeNodes;
   }
   Py_XDECREF(dict);
 }
@@ -1322,10 +1389,10 @@ TreeNodeData_init(TreeNodeDataObject*  self,
 static void
 TreeNodeData_dealloc(TreeNodeDataObject* self)
 {
-  Py_XINCREF(self->taxon);
-  Py_XINCREF(self->branchlength);
-  Py_XINCREF(self->height);
-  Py_XINCREF(self->allData);
+  Py_XDECREF(self->taxon);
+  Py_XDECREF(self->branchlength);
+  Py_XDECREF(self->height);
+  Py_XDECREF(self->allData);
   self->ob_type->tp_free((PyObject*)self);
 }
 
@@ -1438,7 +1505,7 @@ TreeNode_init(TreeNodeObject* self, int prev, uint nSons, uint* sons, PyObject* 
   } else {
     self->succ = PyTuple_New(nSons);
     for(uint k = 0; k < nSons; ++k) {
-      PyTuple_SET_ITEM(self->succ , k, PyInt_FromLong(sons[k]));
+      PyTuple_SET_ITEM(self->succ, k, PyInt_FromLong(sons[k]));
     }
   }
 
@@ -1448,8 +1515,9 @@ TreeNode_init(TreeNodeObject* self, int prev, uint nSons, uint* sons, PyObject* 
 static void
 TreeNode_dealloc(TreeNodeObject* self)
 {
-  Py_XINCREF(self->succ);
-  Py_XINCREF(self->prev);
+  Py_XDECREF(self->succ);
+  Py_XDECREF(self->prev);
+  Py_XDECREF(self->data);
   self->ob_type->tp_free((PyObject*)self);
 }
 
@@ -1502,7 +1570,7 @@ public:
   ~TreesSet();
 
   // Add a tree from text in NEWICK format.
-  int add(const char* txt, PyObject* kwds);
+  int add(const char* txt, PyObject* kwds, bool loadAttributes);
   
   uint nTrees(void) const { return trees.size(); }
   
@@ -1647,7 +1715,7 @@ TreesSet::repFromData(bool const                  cladogram,
   Packer<uint>* top = 0;
   
   if( compressed ) {
-    int nbitsStoreTaxa = lg2i(maxTaxaIndex) + 1;
+    int const nbitsStoreTaxa = lg2i(maxTaxaIndex) + 1;
     top = new FixedIntPacker(nbitsStoreTaxa, taxa.begin(), taxa.end());
   } else {
     top = new SimplePacker<uint>(taxa);
@@ -1840,12 +1908,12 @@ TreesSet::nodes2rep(vector<ParsedTreeNode>& nodes)
 }
 
 int
-TreesSet::add(const char* treeTxt, PyObject* kwds)
+TreesSet::add(const char* treeTxt, PyObject* kwds, bool const loadAttributes)
 {
   vector<ParsedTreeNode> nodes;
 
   int const txtLen = strlen(treeTxt);
-  int nc = readSubTree(treeTxt, nodes);
+  int nc = readSubTree(treeTxt, nodes, loadAttributes);
 
   if( nc > 0 ) {
     nc += skipSpaces(treeTxt + nc);
@@ -2093,10 +2161,10 @@ Tree::getTerminals(vector<uint>& terms) const
 {
   setup();
   terms.reserve(nTaxa);
-  for(auto i = internals->begin(); i != internals->end(); ++i) {
-    Expanded& x = *i;
+  for(uint k = 0; k < internals->size(); ++k) {
+    Expanded const& x = (*internals)[k];
     if( x.itax >= 0 ) {
-      terms.push_back(x.itax);
+      terms.push_back(k);
     }
   }
 }
@@ -2692,13 +2760,14 @@ static PyObject*
 treesSet_add(TreesSetObject* self, PyObject* args, PyObject* kwds)
 {
   const char* treeTxt;
-
-  if( !PyArg_ParseTuple(args, "s", &treeTxt) ) {
+  PyObject* loadAttributes = 0;
+  
+  if( !PyArg_ParseTuple(args, "s|O", &treeTxt,&loadAttributes) ) {
     PyErr_SetString(PyExc_ValueError, "wrong args.") ;
     return 0;
   }
 
-  int const k = self->ts->add(treeTxt, kwds);
+  int const k = self->ts->add(treeTxt, kwds, !loadAttributes || PyObject_IsTrue(loadAttributes));
   if( k < 0 ) {
     return 0;
   }
@@ -2814,8 +2883,9 @@ static PyObject*
 parseTree(PyObject*, PyObject* args)
 {
   const char* treeTxt;
-
-  if( !PyArg_ParseTuple(args, "s", &treeTxt) ) {
+  PyObject* loadAttributes = 0;
+  
+  if( !PyArg_ParseTuple(args, "s|O", &treeTxt,&loadAttributes) ) {
     PyErr_SetString(PyExc_ValueError, "wrong args.") ;
     return 0;
   }
@@ -2823,7 +2893,7 @@ parseTree(PyObject*, PyObject* args)
   vector<ParsedTreeNode> nodes;
 
   int const txtLen = strlen(treeTxt);
-  int nc = readSubTree(treeTxt, nodes);
+  int nc = readSubTree(treeTxt, nodes, !loadAttributes || PyObject_IsTrue(loadAttributes));
 
   if( nc > 0 ) {
     nc += skipSpaces(treeTxt + nc);
@@ -2894,3 +2964,34 @@ inittreesset(void)
   // PyObject* x = PyRun_String(cd, Py_file_input, globals, l);
   // int h = 0;
 }
+
+
+
+  // {
+  //   int loc = 0;
+  //   unsigned char b = *cur;
+  //   unsigned int v;
+  //   for(uint k = 0; k < len; ++k) {
+  //     uint remaining = nBitsPerValue - (usize - loc);
+  //     v = b;
+  //     loc = 0;
+  //     b = *(++cur);
+  //     while( remaining > 0 ) {
+  // 	uint const available = usize - loc;
+  // 	if( remaining <= available ) {
+  // 	  // take available
+  // 	  uint const left = (available - remaining);
+  // 	  v = (v << remaining) | ((b & upperNbits<unsigned char>(remaining)) >> left);
+  // 	  remaining = 0;
+  // 	  b &= lowerNbits<unsigned char>(left);
+  // 	  loc = usize - left;
+  // 	} else {
+  // 	  v = v << usize | b;
+  // 	  b = *(++cur);
+  // 	  loc = 0;
+  // 	  remaining -= usize;
+  // 	}
+  //     }
+  //     temp[k] = v;
+  //   }
+  // }

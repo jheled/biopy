@@ -274,8 +274,8 @@ def _parseNewickPython(txt, weight=1.0, rooted=True, name='') :
   t,depth = _build(nodes, weight=weight, rooted = rooted, name=name)
   return t
 
-def parseNewick(txt, weight=1.0, rooted=True, name='') :
-  nodes = parsetree(txt)
+def parseNewick(txt, weight=1.0, rooted=True, name='', loadAttributes=True) :
+  nodes = parsetree(txt, loadAttributes)
   t,depth = _build(nodes, weight = weight, rooted = rooted, name = name)
 
   global recorsionLimit

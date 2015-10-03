@@ -101,8 +101,11 @@ parser.add_argument("--species-mapping", dest="spmap", metavar="FILE",
                     default = None)
 
 parser.add_argument("--annotate", "-a", dest="annotate",
-                    help="Add support metadata",
-                    action="store_true", default = False)
+                    metavar="ATTR1,ATTR2,...",
+                    help="Add support metadata. By default output clade" + 
+                    " posterior support and height 95%% HPD. Specify additional" +
+                    " attributes separated by a comma.",
+                    nargs='?', const="", default = None)
 
 parser.add_argument("-p", "--progress", dest="progress",
                     help="Print out progress messages to terminal (standard error)",
@@ -258,7 +261,7 @@ if len(trees) == 0 :
   print >> sys.stderr, "**Error: No trees read."
   sys.exit(1)
 
-if 1 :
+if options.annotate is None or options.annotate == '' :
   # Save some memory when trees contains attributes, small speed penalty
   for tree in trees :
     for nid in tree.all_ids() :
@@ -517,8 +520,8 @@ else :
           % (nCandidatesTried, time() - startTime),
 
 
-  if progress or limit > 0 and (not options.annotate):
-    print >>  sys.stderr, "done." 
+  #if progress or limit > 0 and (not options.annotate):
+  #  print >> sys.stderr, "done." 
 
   if options.score:
     print '[&W %g]' % bestScore,
@@ -526,13 +529,14 @@ else :
   stree = bestTree
   
 if stree:
-  if options.annotate :
+  if options.annotate is not None:
     if progress :
-       print >>  sys.stderr, "annotating ...," 
+       print >> sys.stderr, "annotating ...,",
+    atr = options.annotate.split(",") if options.annotate else None
     from biopy import treesSummaries
-    treesSummaries.annotateTree(stree, trees)
+    treesSummaries.annotateTree(stree, trees, atr)
 
 if progress :
   print >>  sys.stderr, "done."
     
-print toNewick(stree, attributes="attributes" if options.annotate else None)
+print toNewick(stree, attributes="attributes" if (options.annotate is not None) else None)

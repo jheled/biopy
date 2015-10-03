@@ -1,4 +1,4 @@
-import treesset
+import biopy.treesset as treesset
 
 def test00() :
   """

@@ -19,14 +19,15 @@ parser.add_argument("-t", "--tips-distance", dest = "dtips", type = float, metav
                     help="""distance between tips (%(default)g)""", default = 1.0)
 
 parser.add_argument("-o", "--global-options", dest="gopts", metavar = 'STR',
-                    help="""comma separated.""", default = None)
+                    help="""Comma separated global tikz options.""", default = None)
 
 parser.add_argument("-s", "--style", action="append", metavar = 'STR',
-                    help="""'name=tikz options' format, options are comma separated.""",
+                    help="""'name=tikz-options' format, options are comma separated.""",
                     default = None)
 
 parser.add_argument("--standalone", action="store_true", help="""make output a""" 
-                    """ (minimal) valid latex file.""", default = False)
+                    """ (minimal) valid latex file. By default output code to
+                    include in a latex document.""", default = False)
 
 parser.add_argument('tree', metavar='TREE', help="""tree text (NEWICK)""")
 

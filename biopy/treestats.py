@@ -352,4 +352,4 @@ def clusteringTreeError(cTree, clu, th, full = False, verbose = False) :
     otot += n.data.tl + (th - n.data.rh)
 
   return (tot, otot, th*len(cTree.get_terminals())) + ((report,) if full else tuple())
-
+    

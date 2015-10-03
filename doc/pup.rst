@@ -23,8 +23,8 @@ values from the data, so you may need to experiment with the decluttering
 parameters to lower the total running time. See the comments for the
 ``--declutter`` option.
 
-General information:
---------------------
+General information
+-------------------
 
 The tree is UPGMA-like, based on genetic pairwise distances. The distance is
 computed by aligning two sequences, computing the sequence identity from the
@@ -47,10 +47,13 @@ the command line. I find this convenient and I hope it will reduce your
 confusion too.
 
 
-Basic usage:
-------------
+Basic usage
+-----------
 
-::
+de-replicate
+""""""""""""
+ 
+| $ ``otool --derep myfile.fasta``
 
  In most cases you want to start with de-replicating the data, that is, creating one "master" sequence for groups of
  identical sequences. Sequence names will be augmented by a suffix of the form ';size=NNN;' when 'NNN' is the duplicity
@@ -59,16 +62,18 @@ Basic usage:
  duplicate distinct (say sequences are tagged with a species name and identical sequences from different species are
  allowed). The size is used throughout the building process and you can think of the sequence as representing a
  "collapsed" sub-tree with zero branches. otool will create the output file 'myfile.derep.fasta'.
+
+declutter
+"""""""""
+
+| $ ``otool [--max-single-tree=NN] --declutter TH1,TH2,... myfile.derep.fasta``
+
+ The first stage *declutters* the data, partitioning the sequences into :math:`\epsilon`-islands, where sequence from
+ two different islands are at least e apart. This is a hierarchical process, i.e. ``--declutter 0.2,0.1,0.03``
+ partitions the data into 0.2-islands, where each 0.2-island may be partitioned further into 0.1-islands, which in turn
+ may be partitioned into 0.03-islands. The islands are split based on size: islands larger than 4000 sequences are split
+ (in the example below), but smaller islands are not.
  
-| $ ``otool --derep myfile.fasta``
-
-::
-
- The first stage *declutters* the data, partitioning the sequences into e-islands, where sequence from two different
- islands are at least e apart. This is a hierarchical process, i.e. '--declutter 0.2,0.1,0.03' partitions the data into
- 0.2-islands, where each 0.2-island may be partitioned further into 0.1-islands, which in turn may be partitioned into
- 0.03-islands. The islands are split based on size: islands larger than 4000 sequences are split (in the example below),
- but smaller islands are not.
  The total running time, and to some extent the "quality" of the tree depends on the maximum tree size and the declutter
  levels. Generally you want larger islands: The maximum size on my 4GB laptop is around 11,000, but you probably want to
  keep it between 3000 and 7000, since larger islands tend to have a root age greater than half the level and would be
@@ -79,46 +84,52 @@ Basic usage:
  Decluttering outputs the island in a NEXUS file ``myfile.derep.decl_p2_p1_p03.trees`` (where the _pXX stands for the
  levels). The branch lengths of the trees in this file arbitrary, and the island affiliation is coded in the tree name.
 
-| $ ``otool [--max-single-tree=NN] --declutter TH1,TH2,... [--max-single-tree=NN] myfile.derep.fasta``
 
-::
+build forest
+""""""""""""
+
+| $ ``otool --forest myfile.derep.decl_pXX_pXX_...trees``
 
  Build a UPGMA tree for each of islands in the file. Creates a NEXUS file ``myfile.derep.pXX.trees``, where XX is the
  forest *level*, that is, the smallest declutter size (``myfile.derep.p03.trees`` for the example above).
  
-| $ ``otool --forest myfile.derep.decl_pXX_pXX_...trees``
 
-::
+stitch
+""""""
+
+| $ ``otool --stitch TH myfile.derep.pXX_pXX_...trees``
 
  Merge trees built from islands with level below TH to one tree, which represents an TH-island. For example,
  ``--stitch 0.1`` will merge groups of 0.03-islands back into the 0.1-island that was split during declutting.
  ``--stitch 1`` would build a single tree in the NEXUS file  ``myfile.derep.trees``. 
  
-| $ ``otool --stitch TH myfile.derep.pXX_pXX_...trees``
 
+cluster
+"""""""
 
-::
+| $ ``otool --cluster TH myfile.derep.trees``
 
   Cluster the sequences into putative OTUs. Clusters are formed from maximal monophyletic clades whose with root age
   less than TH/2. That is, the distance between any pair of sequences in a cluster is less than TH and the distance
   between sequence from different clusters is greater than TH -- according to the distances defined by the tree. Of
   course, any specific pairwise distance might violate this condition, since the distances induced by the tree are an
-  ultrametric reconciliation of the non-ultrametric pairwise relationships. The text output file 'myfile.derep.clusters'
+  ultrametric reconciliation of the non-ultrametric pairwise relationships. The text output file ``myfile.derep.clusters``
   contains one line per cluster, and each line contains the sequence names in the cluster separated by tabs.
   
-| $ ``otool --cluster TH myfile.derep.trees``
 
-::
+shave
+"""""
 
-  Partition the sequences into putative OTUs at the ``TH`` level (same logic as for cluster above), and generate a FASTA
-  file with one consensus sequence for each OTU. The names in the 'myfile.derep.shave_pTH.fasta' file include the names
-  of two tips, where the common ancestor of those two is the OTU root.
-  
 | $ ``otool --shave TH myfile.derep.trees``
 
+  Partition the sequences into putative OTUs at the ``TH`` level (same logic as for cluster above), and generate a FASTA
+  file with one consensus sequence for each OTU. The names in the ``myfile.derep.shave_pTH.fasta`` file include the names
+  of two tips, where the common ancestor of those two is the OTU root.
+  
 
-Generic options:
-----------------
+
+Generic options
+---------------
 
 ::
 
@@ -134,23 +145,21 @@ Generic options:
 | $ ``otool --progress ...``
 | $ ``otool --progress --progress ...``
 
-
 Advanced options:
 -----------------
 
 ::
 
   The search for matching sequences during declutter are terminated after N failures. Increasing the limit increases the
-  search sensitivity and increasing running time cost. You probably want to keep this under 40.
+  search sensitivity but runs slower. You probably want to keep this under 40.
 		    
 | ``--terminate-search-count N[=20]``
 
 ::
 
-  Control saving of pairwise distances during forest building. Those saved distances can save time if the program is
-  unexpectedly terminated during the second stage. The default is 'compressed-fast', equivalent to compressing with
-  'gzip -1 ...'. Set to 'no' to disable saving. The distance files, '*.dists.gz', can be safely deleted at the end of
-  the run.
+  Controls saving of pairwise distances during forest building. Those saved distances will speed up a restart in case of
+  an unexpectedly termination during the second stage. The default is 'compressed-fast', equivalent to compressing with
+  'gzip -1'. Set to 'no' to disable saving. The distance files, '*.dists.gz', can be safely deleted after completion.
   
 | ``--save-distances no|plain|compressed-fast|compressed-normal|compressed-best``
 

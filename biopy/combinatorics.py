@@ -45,7 +45,7 @@ def lchoose(n,k) :
 
 #  Uses scipy.special.gammaln, log of the Gamma function.
 
-  return special.gammaln(n+1) - special.gammaln(k+1) - special.gammaln(n-k+1)
+  return gammaln(n+1) - gammaln(k+1) - gammaln(n-k+1)
 
 def nPairs(k) :
   """ choose(k,2) (Convenience).

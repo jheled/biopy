@@ -50,7 +50,7 @@ class Uniform(object) :
   
 class Exponential(object) :
   def __init__(self, lam) :
-    self.lam= lam
+    self.lam = lam
     self.lglam = log(self.lam)
     
   def __str__(self) :

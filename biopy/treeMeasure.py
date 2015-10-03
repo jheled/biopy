@@ -18,9 +18,12 @@ import operator
 
 from treeutils import nodeHeights, getPostOrder
 
+import itertools
+
 __all__ = [
   "branchScoreTreeDistance", "treeScoreDistance", "heightsScoreTreeDistance",
   "heightsScoreTreeDistanceAll",
+  "kendallVectors", "kendallDistance", "kendallDistanceFromVectors",
   "allPartitions", "treeLength", "treeLengthNormed", "treeArea", "vdistance",
   "rootedAgreementScore", "conditionalCladeScore", "cladesInTreesSet",
   "setTreeClades"
@@ -379,18 +382,18 @@ def cladesInTreesSet(trees, withPairs=False, tidyup=True, func=None, withTaxa = 
         del node.data.clade   
         del node.data.height   
 
-  if func is None :
-    clc = dict([(k,x) for k,x in clc.iteritems()])
-    if withPairs :
-      clc2 = dict([(k,x) for k,x in clc2.iteritems()])
-      return (clc, clc2)
-    return clc
-  else :
-    clc = dict([(k,x) for k,x in clc.iteritems()])
-    if withPairs :
-      clc2 = dict([(k,x) for k,x in clc2.iteritems()])
-      return (clc, clc2)
-    return clc
+#  if func is None :
+  clc = dict([(k,x) for k,x in clc.iteritems()])
+  if withPairs :
+    clc2 = dict([(k,x) for k,x in clc2.iteritems()])
+    return (clc, clc2)
+  return clc
+#  else :
+#    clc = dict([(k,x) for k,x in clc.iteritems()])
+#    if withPairs :
+#      clc2 = dict([(k,x) for k,x in clc2.iteritems()])
+#      return (clc, clc2)
+#    return clc
 
 def conditionalCladeScore(tree, clc12, laplaceCorrection = False) :
   clc, clc2 = clc12
@@ -469,3 +472,80 @@ def rootedAgreementScore(tree1, tree2, scaled=False) :
       #print tot
       
   return tot/(tl1+tl2) if scaled else tot
+
+def __setAuxHeights(tree, iNode, h, k) :
+  n = tree.node(iNode)
+  if iNode != tree.root :
+    h += n.data.branchlength
+  n.data.info = (h,k)
+  if n.succ:
+    for c in n.succ:
+      __setAuxHeights(tree, c, h, k+1)
+
+def __ij2pos(i,j,n) :      
+  mij = min(i,j);
+  xij = max(i,j);
+  pos = (mij*(2*n - 1 - mij))//2 + (xij-mij-1)
+  return pos
+    
+def kendallVectors(tree, tax = None) :
+  __setAuxHeights(tree, tree.root, 0.0, 0)
+  terms = tree.get_terminals()
+  if tax is None :
+    term2i = dict(zip(terms, range(len(terms))))
+    for i,k in zip(terms, range(len(terms))) :
+      tree.node(i).data.idx = k
+  else :
+    tax2i = dict(zip(tax, range(len(tax))))
+    term2i = [(i,tax2i[tree.node(i).data.taxon]) for i in terms]
+    for i,k in term2i:
+      tree.node(i).data.idx = k
+    terms = [j[0] for j in sorted(term2i, key = lambda x : x[1])]
+    term2i = dict(term2i)
+    
+  nt = len(terms)
+
+  np = (nt*(nt-1))//2
+  hv = [None]*(nt + np)
+  iv = [None]*len(hv)
+  
+  for n in getPostOrder(tree):
+    data = n.data
+    if not n.succ:
+      data.clade = [data.idx,] # term2i[n.id],]
+    else :
+      p = []
+      for s in n.succ :
+        d = tree.node(s).data
+        p.append(d.clade)
+        del d.clade
+      data.clade = list(itertools.chain(*p))
+      for cc in itertools.combinations(p, 2) :
+        for i,j in itertools.product(*cc) :
+          pos = __ij2pos(i,j,nt)
+          assert hv[pos] is None
+          assert iv[pos] is None          
+          hv[pos] = data.info[0]
+          iv[pos] = data.info[1]
+
+  for i in terms:
+    data = tree.node(i).data
+    k = data.idx # term2i[i]
+    hv[np + k] = data.branchlength
+    iv[np+k] = 1
+
+  return hv,iv,[tree.node(x).data.taxon for x in terms]
+
+def kendallDistanceFromVectors(v1, v2, lam) :
+  hv1,iv1 = v1
+  hv2,iv2 = v2
+  xlam = 1-lam
+  vlam1 = [xlam*i + lam * h for h,i in zip(hv1,iv1)]
+  vlam2 = [xlam*i + lam * h for h,i in zip(hv2,iv2)]  
+  return vdistance(vlam1, vlam2, 2)
+  
+def kendallDistance(tree1, tree2, lam) :
+  hv1,iv1, tax = kendallVectors(tree1)
+  hv2,iv2, tax = kendallVectors(tree2, tax)
+  return kendallDistanceFromVectors((hv1,iv1), (hv2,iv2), lam)
+  

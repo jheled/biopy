@@ -176,7 +176,7 @@ class TreeLogger(object) :
       print >> self.outFile, "end;"
       self.outFile.close()
 
-# don't clobber exsiting attributes - append is much nicer
+# don't clobber existing attributes - append is much nicer
 def addAttributes(nd, atrs) :
   if not hasattr(nd.data, attributesVarName) :
     nd.data.attributes = dict()
@@ -258,7 +258,8 @@ def getPreOrder(tree, nid = None, includeTaxa = True) :
   return r
 
 def countNexusTrees(nexFileName) :
-  """ Number of trees in a nexus file."""
+  """ Number of trees in a nexus file (cheat: just counts number of lines
+  beginning with 'tree')."""
   nexFile = fileFromName(nexFileName)
   c = 0
   for l in nexFile:
@@ -526,7 +527,7 @@ def coalLogLike(tree, demog, condOnTree = False) :
 
 def resolveTree(tree) :
   for n in getPostOrder(tree):
-    if len(n.succ) > 2 :
+    if n.succ and len(n.succ) > 2 :
       cans = [tree.node(x) for x in n.succ]
       while len(cans) > 2 :
         i,j = random.sample(range(len(cans)), 2)
@@ -832,7 +833,7 @@ def _rootPointByTipVarianceOptimization(tree, normed) :
   return minLoc
 
 def rootByTipVarianceOptimization(tree, normed=False) :
-  minLoc = _rootPointByTipVarianceOptimization(tree,normed)
+  minLoc = _rootPointByTipVarianceOptimization(tree, normed)
   return _rerootedNewickRep(tree, minLoc[1], minLoc[2])
 
 class CAhelper(object) :
